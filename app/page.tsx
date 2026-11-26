@@ -64,7 +64,13 @@ function LiveIndicator({ connected }: { connected: boolean }) {
   );
 }
 
-function NotConfiguredBanner() {
+function NotConfiguredBanner({ demo = false }: { demo?: boolean }) {
+  if (demo)
+    return (
+      <div className="relative z-30 bg-fuchsia-500 px-4 py-2 text-center text-sm font-semibold text-white">
+        Mode démo : ton vote reste sur ce téléphone.
+      </div>
+    );
   if (firebaseConfigured) return null;
   return (
     <div className="relative z-30 bg-amber-500 px-4 py-2 text-center text-sm font-semibold text-slate-950">
@@ -73,11 +79,24 @@ function NotConfiguredBanner() {
   );
 }
 
+/** Demo mode: /?demo=2&reveal → shows scenario 2 locally, no Firebase. */
+function readDemo(): string {
+  const q = new URLSearchParams(window.location.search);
+  return q.has("demo") ? `${q.get("demo") || "1"}|${q.has("reveal") ? 1 : 0}` : "";
+}
+
 export default function AudiencePage() {
+  const demoKey = useSyncExternalStore(noopSubscribe, readDemo, () => "");
+  const demo = demoKey !== "";
+  const [demoVote, setDemoVote] = useState<VoteChoice | null>(null);
   // Client-only voter identity (null during server prerender).
   const voterId = useSyncExternalStore(noopSubscribe, getOrCreateVoterId, () => null);
-  const [state, setState] = useState<PulseState>(DEFAULT_STATE);
-  const [stateLoaded, setStateLoaded] = useState(!firebaseConfigured);
+  const [liveState, setState] = useState<PulseState>(DEFAULT_STATE);
+  const state: PulseState = demo
+    ? parseState({ activeScenario: Number(demoKey.split("|")[0]), revealExplanation: demoKey.endsWith("|1") })
+    : liveState;
+  const [liveLoaded, setStateLoaded] = useState(!firebaseConfigured);
+  const stateLoaded = demo || liveLoaded;
   const [connected, setConnected] = useState(false);
   const [voteSnap, setVoteSnap] = useState<{ key: string; choice: VoteChoice | null }>({ key: "", choice: null });
   const [sending, setSending] = useState<VoteChoice | null>(null);
@@ -85,6 +104,7 @@ export default function AudiencePage() {
 
   // Session state + connection status
   useEffect(() => {
+    if (demo) return;
     const unsubState = onValue(
       ref(db, PATHS.state),
       (snap) => {
@@ -98,23 +118,23 @@ export default function AudiencePage() {
       unsubState();
       unsubConn();
     };
-  }, []);
+  }, [demo]);
 
   // My own vote on the active scenario (survives reloads, clears on reset)
   const active = state.activeScenario;
   const voteKey = `${active}:${voterId ?? ""}`;
   useEffect(() => {
-    if (!voterId || active === 0) return;
+    if (demo || !voterId || active === 0) return;
     const key = `${active}:${voterId}`;
     const unsub = onValue(ref(db, PATHS.voterVote(active, voterId)), (snap) => {
       const v = snap.val() as Partial<Vote> | null;
       setVoteSnap({ key, choice: v?.choice === "trust" || v?.choice === "verify" ? v.choice : null });
     });
     return () => unsub();
-  }, [active, voterId]);
+  }, [active, voterId, demo]);
 
   // Values are keyed by scenario so they reset automatically when the presenter switches.
-  const myVote = voteSnap.key === voteKey ? voteSnap.choice : null;
+  const myVote = demo ? demoVote : voteSnap.key === voteKey ? voteSnap.choice : null;
   const error = errorSnap?.key === voteKey ? errorSnap.message : null;
 
   const scenario = active === 0 ? undefined : getScenario(active);
@@ -122,6 +142,10 @@ export default function AudiencePage() {
   async function vote(choice: VoteChoice) {
     if (!voterId || !scenario || sending) return;
     if (choice === myVote) return;
+    if (demo) {
+      setDemoVote(choice);
+      return;
+    }
     const key = voteKey;
     setSending(choice);
     setErrorSnap(null);
@@ -137,7 +161,7 @@ export default function AudiencePage() {
 
   return (
     <main className="relative flex min-h-dvh flex-col bg-slate-950 text-slate-100 overflow-hidden">
-      <NotConfiguredBanner />
+      <NotConfiguredBanner demo={demo} />
       {/* Ambient background */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(0,240,255,0.10),transparent_60%)]" />
       <div className="pointer-events-none absolute inset-0 opacity-[0.07] bg-[linear-gradient(rgba(0,240,255,0.6)_1px,transparent_1px),linear-gradient(90deg,rgba(0,240,255,0.6)_1px,transparent_1px)] bg-[size:28px_28px]" />
@@ -149,7 +173,7 @@ export default function AudiencePage() {
             The Trust <span className="text-cyan-300">Pulse</span>
           </h1>
         </div>
-        <LiveIndicator connected={connected} />
+        <LiveIndicator connected={connected || demo} />
       </header>
 
       <section className="relative z-10 flex flex-1 flex-col px-5 pb-8">
