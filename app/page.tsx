@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { onValue, ref, set } from "firebase/database";
-import { db, PATHS } from "@/lib/firebase";
+import { db, firebaseConfigured, PATHS } from "@/lib/firebase";
 import {
   DEFAULT_STATE,
   getScenario,
@@ -64,11 +64,20 @@ function LiveIndicator({ connected }: { connected: boolean }) {
   );
 }
 
+function NotConfiguredBanner() {
+  if (firebaseConfigured) return null;
+  return (
+    <div className="relative z-30 bg-amber-500 px-4 py-2 text-center text-sm font-semibold text-slate-950">
+      Firebase n&apos;est pas configuré : l&apos;interface s&apos;affiche mais les votes sont désactivés.
+    </div>
+  );
+}
+
 export default function AudiencePage() {
   // Client-only voter identity (null during server prerender).
   const voterId = useSyncExternalStore(noopSubscribe, getOrCreateVoterId, () => null);
   const [state, setState] = useState<PulseState>(DEFAULT_STATE);
-  const [stateLoaded, setStateLoaded] = useState(false);
+  const [stateLoaded, setStateLoaded] = useState(!firebaseConfigured);
   const [connected, setConnected] = useState(false);
   const [voteSnap, setVoteSnap] = useState<{ key: string; choice: VoteChoice | null }>({ key: "", choice: null });
   const [sending, setSending] = useState<VoteChoice | null>(null);
@@ -128,6 +137,7 @@ export default function AudiencePage() {
 
   return (
     <main className="relative flex min-h-dvh flex-col bg-slate-950 text-slate-100 overflow-hidden">
+      <NotConfiguredBanner />
       {/* Ambient background */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(0,240,255,0.10),transparent_60%)]" />
       <div className="pointer-events-none absolute inset-0 opacity-[0.07] bg-[linear-gradient(rgba(0,240,255,0.6)_1px,transparent_1px),linear-gradient(90deg,rgba(0,240,255,0.6)_1px,transparent_1px)] bg-[size:28px_28px]" />

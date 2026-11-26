@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { onValue, ref, remove, set, update } from "firebase/database";
 import QRCode from "qrcode";
 import CyberShield3D from "@/components/CyberShield3D";
-import { db, PATHS } from "@/lib/firebase";
+import { db, firebaseConfigured, PATHS } from "@/lib/firebase";
 import {
   DEFAULT_STATE,
   getScenario,
@@ -135,6 +135,15 @@ function QrModal({ url, qr, onClose }: { url: string; qr: string | null; onClose
   );
 }
 
+function NotConfiguredBanner() {
+  if (firebaseConfigured) return null;
+  return (
+    <div className="relative z-30 bg-amber-500 px-4 py-2 text-center text-sm font-semibold text-slate-950">
+      Firebase n&apos;est pas configuré : l&apos;interface s&apos;affiche mais les votes sont désactivés.
+    </div>
+  );
+}
+
 export default function StagePage() {
   const [state, setState] = useState<PulseState>(DEFAULT_STATE);
   const [votesSnap, setVotesSnap] = useState<{ scenario: number; counts: typeof EMPTY_COUNTS }>({
@@ -252,6 +261,7 @@ export default function StagePage() {
 
   return (
     <main className="relative flex h-dvh w-full flex-col overflow-hidden bg-[#050811] text-slate-100">
+      <NotConfiguredBanner />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(0,240,255,0.08),transparent_55%)]" />
       <div
         className="pointer-events-none absolute inset-0 transition-opacity duration-1000 bg-[radial-gradient(circle_at_30%_50%,rgba(239,68,68,0.16),transparent_60%)]"

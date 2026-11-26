@@ -11,10 +11,15 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-if (!firebaseConfig.databaseURL) {
-  throw new Error(
-    "[Trust Pulse] NEXT_PUBLIC_FIREBASE_DATABASE_URL is missing. Copy .env.local.example to .env.local and fill in your Firebase project values."
+/** False until the NEXT_PUBLIC_FIREBASE_* variables are provided at build time. */
+export const firebaseConfigured = Boolean(firebaseConfig.databaseURL);
+
+if (!firebaseConfigured) {
+  console.warn(
+    "[Trust Pulse] NEXT_PUBLIC_FIREBASE_DATABASE_URL is missing — the UI renders but votes are disabled. Copy .env.local.example to .env.local and fill in your Firebase project values."
   );
+  // Placeholder so the SDK initialises; it simply never connects.
+  firebaseConfig.databaseURL = "https://trust-pulse-unconfigured-default-rtdb.firebaseio.com";
 }
 
 // Reuse the existing app during hot reload / multiple imports.
