@@ -192,36 +192,6 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
     coreGroup.add(core, halo, innerWire);
     scene.add(coreGroup); // not in tiltGroup so the jitter stays screen-centred
 
-    // ---------- Orbit ring ----------
-    const ringGeometry = new THREE.TorusGeometry(2.35, 0.006, 8, 160);
-    const ringMaterial = new THREE.MeshBasicMaterial({ color: CYAN.clone(), transparent: true, opacity: 0.35 });
-    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
-    ring.rotation.x = Math.PI / 2.3;
-    tiltGroup.add(ring);
-
-    // ---------- Background particles ----------
-    const PARTICLES = 700;
-    const particlePositions = new Float32Array(PARTICLES * 3);
-    for (let i = 0; i < PARTICLES; i++) {
-      const r = 4 + Math.random() * 10;
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-      particlePositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-      particlePositions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-      particlePositions[i * 3 + 2] = r * Math.cos(phi) - 4;
-    }
-    const particleGeometry = new THREE.BufferGeometry();
-    particleGeometry.setAttribute("position", new THREE.BufferAttribute(particlePositions, 3));
-    const particleMaterial = new THREE.PointsMaterial({
-      color: 0x5fdcff,
-      size: 0.025,
-      transparent: true,
-      opacity: 0.55,
-      depthWrite: false,
-    });
-    const particles = new THREE.Points(particleGeometry, particleMaterial);
-    scene.add(particles);
-
     // ---------- Resize ----------
     const resize = () => {
       const w = Math.max(1, container.clientWidth);
@@ -276,8 +246,6 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
       spinGroup.rotation.x = Math.sin(t * 0.25) * 0.12;
       tiltGroup.rotation.y += (mouse.x * 0.45 - tiltGroup.rotation.y) * Math.min(1, dt * 3);
       tiltGroup.rotation.x += (mouse.y * 0.3 - tiltGroup.rotation.x) * Math.min(1, dt * 3);
-      ring.rotation.z += dt * 0.12;
-      particles.rotation.y += dt * 0.01;
 
       // Facets
       for (const f of facets) {
@@ -304,7 +272,6 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
       coreMaterial.color.copy(tmpColor);
       haloMaterial.color.copy(tmpColor);
       innerWireMaterial.color.copy(tmpColor);
-      ringMaterial.color.copy(tmpColor);
       coreLight.color.copy(tmpColor);
 
       const heartbeat = 1 + Math.sin(t * (2.2 + danger * 9)) * (0.04 + danger * 0.08);

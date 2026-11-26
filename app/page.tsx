@@ -13,6 +13,7 @@ import {
 } from "@/lib/scenarios";
 
 const VOTER_KEY = "trust_pulse_voter_id";
+const noopSubscribe = () => () => {};
 
 function createVoterId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -23,84 +24,62 @@ function createVoterId(): string {
 
 let cachedVoterId: string | null = null;
 
+/** Stable per-device id stored in localStorage (one vote per scenario, editable). */
 function getOrCreateVoterId(): string {
   if (cachedVoterId) return cachedVoterId;
-  cachedVoterId = readOrCreateVoterId();
-  return cachedVoterId;
-}
-
-function readOrCreateVoterId(): string {
   try {
     const existing = window.localStorage.getItem(VOTER_KEY);
-    if (existing && /^[A-Za-z0-9_-]{6,64}$/.test(existing)) return existing;
-    const id = createVoterId();
-    window.localStorage.setItem(VOTER_KEY, id);
-    return id;
+    if (existing && /^[A-Za-z0-9_-]{6,64}$/.test(existing)) {
+      cachedVoterId = existing;
+    } else {
+      cachedVoterId = createVoterId();
+      window.localStorage.setItem(VOTER_KEY, cachedVoterId);
+    }
   } catch {
     // Private mode / storage disabled: fall back to a per-session id.
-    return createVoterId();
+    cachedVoterId = createVoterId();
   }
+  return cachedVoterId;
 }
-
-const noopSubscribe = () => () => {};
 
 function makeVote(choice: VoteChoice): Vote {
   return { choice, timestamp: Date.now() };
 }
 
-function LiveIndicator({ connected }: { connected: boolean }) {
-  return (
-    <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest">
-      <span className="relative flex h-2.5 w-2.5">
-        {connected && (
-          <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 animate-pulse-ring" />
-        )}
-        <span
-          className={`relative inline-flex h-2.5 w-2.5 rounded-full ${connected ? "bg-emerald-400" : "bg-slate-600"}`}
-        />
-      </span>
-      <span className={connected ? "text-emerald-300" : "text-slate-500"}>{connected ? "Live" : "Connecting…"}</span>
-    </div>
-  );
-}
-
-function NotConfiguredBanner({ demo = false }: { demo?: boolean }) {
-  if (demo)
-    return (
-      <div className="relative z-30 bg-fuchsia-500 px-4 py-2 text-center text-sm font-semibold text-white">
-        Mode démo : ton vote reste sur ce téléphone.
-      </div>
-    );
-  if (firebaseConfigured) return null;
-  return (
-    <div className="relative z-30 bg-amber-500 px-4 py-2 text-center text-sm font-semibold text-slate-950">
-      Firebase n&apos;est pas configuré : l&apos;interface s&apos;affiche mais les votes sont désactivés.
-    </div>
-  );
-}
-
-/** Demo mode: /?demo=2&reveal → shows scenario 2 locally, no Firebase. */
+/** Demo mode: /?demo=2&reveal shows scenario 2 locally, without Firebase. */
 function readDemo(): string {
   const q = new URLSearchParams(window.location.search);
   return q.has("demo") ? `${q.get("demo") || "1"}|${q.has("reveal") ? 1 : 0}` : "";
 }
 
+function Notice({ demo }: { demo: boolean }) {
+  if (!demo && firebaseConfigured) return null;
+  return (
+    <p className="border-b border-white/10 px-6 py-2.5 text-center text-[13px] text-slate-400">
+      {demo
+        ? "Mode démo : ton vote reste sur ce téléphone."
+        : "Firebase n'est pas configuré : les votes sont désactivés."}
+    </p>
+  );
+}
+
 export default function AudiencePage() {
   const demoKey = useSyncExternalStore(noopSubscribe, readDemo, () => "");
   const demo = demoKey !== "";
-  const [demoVote, setDemoVote] = useState<VoteChoice | null>(null);
-  // Client-only voter identity (null during server prerender).
   const voterId = useSyncExternalStore(noopSubscribe, getOrCreateVoterId, () => null);
-  const [liveState, setState] = useState<PulseState>(DEFAULT_STATE);
+
+  const [liveState, setLiveState] = useState<PulseState>(DEFAULT_STATE);
+  const [liveLoaded, setLiveLoaded] = useState(!firebaseConfigured);
+  const [connected, setConnected] = useState(false);
+  const [voteSnap, setVoteSnap] = useState<{ key: string; choice: VoteChoice | null }>({ key: "", choice: null });
+  const [demoVote, setDemoVote] = useState<VoteChoice | null>(null);
+  const [sending, setSending] = useState<VoteChoice | null>(null);
+  const [errorSnap, setErrorSnap] = useState<{ key: string; message: string } | null>(null);
+
   const state: PulseState = demo
     ? parseState({ activeScenario: Number(demoKey.split("|")[0]), revealExplanation: demoKey.endsWith("|1") })
     : liveState;
-  const [liveLoaded, setStateLoaded] = useState(!firebaseConfigured);
-  const stateLoaded = demo || liveLoaded;
-  const [connected, setConnected] = useState(false);
-  const [voteSnap, setVoteSnap] = useState<{ key: string; choice: VoteChoice | null }>({ key: "", choice: null });
-  const [sending, setSending] = useState<VoteChoice | null>(null);
-  const [errorSnap, setErrorSnap] = useState<{ key: string; message: string } | null>(null);
+  const loaded = demo || liveLoaded;
 
   // Session state + connection status
   useEffect(() => {
@@ -108,10 +87,10 @@ export default function AudiencePage() {
     const unsubState = onValue(
       ref(db, PATHS.state),
       (snap) => {
-        setState(parseState(snap.val()));
-        setStateLoaded(true);
+        setLiveState(parseState(snap.val()));
+        setLiveLoaded(true);
       },
-      () => setStateLoaded(true)
+      () => setLiveLoaded(true)
     );
     const unsubConn = onValue(ref(db, ".info/connected"), (snap) => setConnected(snap.val() === true));
     return () => {
@@ -133,15 +112,14 @@ export default function AudiencePage() {
     return () => unsub();
   }, [active, voterId, demo]);
 
-  // Values are keyed by scenario so they reset automatically when the presenter switches.
+  // Keyed by scenario, so they reset on their own when the presenter moves on.
   const myVote = demo ? demoVote : voteSnap.key === voteKey ? voteSnap.choice : null;
   const error = errorSnap?.key === voteKey ? errorSnap.message : null;
-
   const scenario = active === 0 ? undefined : getScenario(active);
+  const live = demo || connected;
 
   async function vote(choice: VoteChoice) {
-    if (!voterId || !scenario || sending) return;
-    if (choice === myVote) return;
+    if (!voterId || !scenario || sending || choice === myVote) return;
     if (demo) {
       setDemoVote(choice);
       return;
@@ -151,163 +129,129 @@ export default function AudiencePage() {
     setErrorSnap(null);
     try {
       await set(ref(db, PATHS.voterVote(scenario.id, voterId)), makeVote(choice));
-      if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate?.(30);
+      navigator.vibrate?.(20);
     } catch {
-      setErrorSnap({ key, message: "Vote not sent — check your connection and tap again." });
+      setErrorSnap({ key, message: "Your vote didn't go through. Check your connection and tap again." });
     } finally {
       setSending(null);
     }
   }
 
   return (
-    <main className="relative flex min-h-dvh flex-col bg-slate-950 text-slate-100 overflow-hidden">
-      <NotConfiguredBanner demo={demo} />
-      {/* Ambient background */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(0,240,255,0.10),transparent_60%)]" />
-      <div className="pointer-events-none absolute inset-0 opacity-[0.07] bg-[linear-gradient(rgba(0,240,255,0.6)_1px,transparent_1px),linear-gradient(90deg,rgba(0,240,255,0.6)_1px,transparent_1px)] bg-[size:28px_28px]" />
+    <main className="flex min-h-dvh flex-col bg-slate-950 text-slate-100">
+      <Notice demo={demo} />
 
-      <header className="relative z-10 flex items-center justify-between px-5 pt-5 pb-3">
-        <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-cyan-300/70">The Art of the Con</p>
-          <h1 className="text-lg font-bold tracking-tight">
-            The Trust <span className="text-cyan-300">Pulse</span>
-          </h1>
-        </div>
-        <LiveIndicator connected={connected || demo} />
-      </header>
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-6 pt-6 pb-8">
+        <header className="flex items-center justify-between text-[15px]">
+          <span className="font-semibold tracking-tight">The Trust Pulse</span>
+          <span className="flex items-center gap-2 text-slate-400" aria-live="polite">
+            <span
+              className={`size-2 rounded-full transition-colors ${live ? "bg-secure" : "bg-slate-600"}`}
+              aria-hidden
+            />
+            {live ? "Connected" : "Connecting"}
+          </span>
+        </header>
 
-      <section className="relative z-10 flex flex-1 flex-col px-5 pb-8">
-        {!stateLoaded ? (
-          <div className="flex flex-1 items-center justify-center">
-            <div className="h-10 w-10 animate-spin rounded-full border-2 border-cyan-400/20 border-t-cyan-300" />
+        {!loaded ? (
+          <div className="flex flex-1 items-center justify-center" aria-label="Loading">
+            <span className="size-6 animate-spin rounded-full border-2 border-white/15 border-t-white/70" />
           </div>
         ) : !scenario ? (
-          /* ---------- Waiting screen ---------- */
-          <div className="flex flex-1 flex-col items-center justify-center text-center animate-fade-up">
-            <div className="relative mb-10 flex h-36 w-36 items-center justify-center">
-              <span className="absolute inset-0 rounded-full border border-cyan-300/40 animate-pulse-ring" />
-              <span
-                className="absolute inset-0 rounded-full border border-cyan-300/30 animate-pulse-ring"
-                style={{ animationDelay: "0.9s" }}
-              />
-              <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-cyan-400/10 ring-1 ring-cyan-300/50 shadow-[0_0_60px_rgba(0,240,255,0.35)]">
-                <svg viewBox="0 0 24 24" className="h-11 w-11 text-cyan-300" fill="none" stroke="currentColor" strokeWidth="1.6">
-                  <path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" strokeLinejoin="round" />
-                  <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
-            </div>
-            <h2 className="text-3xl font-black leading-tight">
-              The Art of the Con
-            </h2>
-            <p className="mt-2 font-mono text-xs uppercase tracking-[0.25em] text-slate-400">Legacy of Deception</p>
-            <p className="mt-8 max-w-xs text-base text-slate-300">
-              Waiting for the presenter to launch <span className="font-semibold text-cyan-300">Scenario 01</span>
-              <span className="inline-block w-6 text-left animate-pulse">...</span>
+          <section className="flex flex-1 flex-col justify-center">
+            <h1 className="font-serif text-[3.5rem] leading-[0.95] tracking-tight">
+              The Art
+              <br />
+              of the Con
+            </h1>
+            <p className="mt-6 text-lg leading-relaxed text-slate-300">
+              Waiting for the presenter to launch Scenario 01...
             </p>
-            <p className="mt-6 max-w-xs text-sm text-slate-500">
-              Keep this page open. Questions will appear here automatically.
+            <p className="mt-2 text-[15px] leading-relaxed text-slate-500">
+              Keep this page open. The first question will appear here on its own.
             </p>
-          </div>
+          </section>
         ) : (
-          /* ---------- Active scenario ---------- */
-          <div key={scenario.id} className="flex flex-1 flex-col animate-fade-up">
-            <p className="font-mono text-xs uppercase tracking-[0.25em] text-cyan-300/80">
-              {String(scenario.id).padStart(2, "0")} / 03
-            </p>
-            <h2 className="mt-1 text-2xl font-extrabold leading-tight">{scenario.title.split(" — ")[1] ?? scenario.title}</h2>
+          <section key={scenario.id} className="animate-enter flex flex-1 flex-col pt-10">
+            <p className="text-[15px] text-slate-400">Scenario {scenario.id} of 3</p>
+            <h1 className="mt-1 text-[1.75rem] leading-tight font-semibold tracking-tight">
+              {scenario.title.split(" — ")[1] ?? scenario.title}
+            </h1>
 
-            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-[17px] leading-relaxed text-slate-200 shadow-inner">
-              {scenario.prompt}
-            </div>
+            <p className="mt-6 font-serif text-[1.4rem] leading-[1.35] text-slate-200">{scenario.prompt}</p>
 
-            <div className="mt-6 flex flex-col gap-4">
-              <VoteButton
-                variant="trust"
+            <div className="mt-auto space-y-3 pt-10">
+              <Choice
+                tone="trust"
                 label={scenario.trustLabel}
                 selected={myVote === "trust"}
-                dimmed={myVote === "verify"}
-                loading={sending === "trust"}
+                faded={myVote === "verify"}
+                busy={sending === "trust"}
                 disabled={!voterId || sending !== null}
                 onClick={() => vote("trust")}
               />
-              <VoteButton
-                variant="verify"
+              <Choice
+                tone="verify"
                 label={scenario.verifyLabel}
                 selected={myVote === "verify"}
-                dimmed={myVote === "trust"}
-                loading={sending === "verify"}
+                faded={myVote === "trust"}
+                busy={sending === "verify"}
                 disabled={!voterId || sending !== null}
                 onClick={() => vote("verify")}
               />
             </div>
 
-            <div className="mt-4 min-h-[3rem] text-center text-sm">
-              {error ? (
-                <p className="text-red-400">{error}</p>
-              ) : myVote ? (
-                <p className="text-slate-300">
-                  <span className="mr-1.5 inline-block rounded-full bg-emerald-400/15 px-2 py-0.5 font-semibold text-emerald-300">
-                    ✓ Vote recorded
-                  </span>
-                  <span className="block mt-1.5 text-slate-500">Changed your mind? Tap the other option.</span>
-                </p>
-              ) : (
-                <p className="text-slate-500">Tap one option — your answer is anonymous.</p>
-              )}
-            </div>
+            <p className={`mt-4 text-center text-[14px] ${error ? "text-alarm" : "text-slate-500"}`} aria-live="polite">
+              {error ?? (myVote ? "Vote recorded. Tap the other answer to change it." : "Your answer is anonymous.")}
+            </p>
 
             {state.revealExplanation && (
-              <div className="mt-2 animate-fade-up rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4">
-                {myVote && (
-                  <p
-                    className={`mb-2 text-sm font-bold uppercase tracking-wider ${
-                      myVote === "trust" ? "text-red-400" : "text-emerald-300"
-                    }`}
-                  >
-                    {myVote === "trust" ? "⚠ You would have been compromised" : "🛡 You stayed secure"}
-                  </p>
-                )}
-                <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-amber-300">The trap</p>
-                <p className="mt-1 text-[15px] leading-relaxed text-amber-50">{scenario.trapExplanation}</p>
-                <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.2em] text-amber-300/80">Lever</p>
-                <p className="mt-0.5 text-sm text-amber-100/90">{scenario.lever}</p>
+              <div className="animate-enter mt-8 border-t border-white/10 pt-6">
+                <h2
+                  className={`text-xl font-semibold ${
+                    myVote === "trust" ? "text-alarm" : myVote === "verify" ? "text-secure" : "text-slate-100"
+                  }`}
+                >
+                  {myVote === "trust"
+                    ? "You would have been conned."
+                    : myVote === "verify"
+                      ? "You saw through it."
+                      : "Here's how the trap works."}
+                </h2>
+                <p className="mt-3 text-[16px] leading-relaxed text-slate-300">{scenario.trapExplanation}</p>
+                <p className="mt-4 text-[14px] leading-relaxed text-slate-500">Lever: {scenario.lever}</p>
               </div>
             )}
-          </div>
+          </section>
         )}
-      </section>
+      </div>
     </main>
   );
 }
 
-function VoteButton({
-  variant,
+function Choice({
+  tone,
   label,
   selected,
-  dimmed,
-  loading,
+  faded,
+  busy,
   disabled,
   onClick,
 }: {
-  variant: VoteChoice;
+  tone: VoteChoice;
   label: string;
   selected: boolean;
-  dimmed: boolean;
-  loading: boolean;
+  faded: boolean;
+  busy: boolean;
   disabled: boolean;
   onClick: () => void;
 }) {
-  const isTrust = variant === "trust";
-  const base =
-    "relative w-full min-h-[92px] rounded-2xl px-5 py-4 text-left text-lg font-bold leading-snug transition-all duration-200 active:scale-[0.98] disabled:cursor-wait focus:outline-none focus-visible:ring-4";
-  const palette = isTrust
-    ? selected
-      ? "bg-gradient-to-br from-red-500 to-amber-500 text-white ring-2 ring-amber-200 shadow-[0_0_40px_rgba(239,68,68,0.55)]"
-      : "bg-gradient-to-br from-red-600/25 to-amber-500/20 text-red-50 ring-1 ring-red-400/50 focus-visible:ring-red-400/50"
-    : selected
-      ? "bg-gradient-to-br from-cyan-400 to-emerald-400 text-slate-950 ring-2 ring-cyan-100 shadow-[0_0_40px_rgba(0,240,255,0.5)]"
-      : "bg-gradient-to-br from-cyan-500/20 to-emerald-500/15 text-cyan-50 ring-1 ring-cyan-300/50 focus-visible:ring-cyan-300/50";
+  const trust = tone === "trust";
+  const look = selected
+    ? trust
+      ? "border-transparent bg-alarm text-white"
+      : "border-transparent bg-secure text-[#03161c]"
+    : "border-white/12 bg-white/[0.03] text-slate-100 active:bg-white/[0.07]";
 
   return (
     <button
@@ -315,27 +259,17 @@ function VoteButton({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
-      className={`${base} ${palette} ${dimmed ? "opacity-45" : "opacity-100"}`}
+      className={`flex min-h-[76px] w-full items-center gap-4 rounded-2xl border px-5 py-4 text-left text-[17px] leading-snug font-medium transition-[background-color,opacity,transform] duration-200 active:scale-[0.99] disabled:cursor-wait ${look} ${
+        faded ? "opacity-45" : ""
+      }`}
     >
-      <span className="flex items-center gap-4">
-        <span
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-2xl ${
-            selected ? "bg-black/15" : isTrust ? "bg-red-500/20" : "bg-cyan-400/15"
-          }`}
-          aria-hidden
-        >
-          {loading ? (
-            <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-          ) : selected ? (
-            "✓"
-          ) : isTrust ? (
-            "⚡"
-          ) : (
-            "🔍"
-          )}
-        </span>
-        <span>{label}</span>
-      </span>
+      <span
+        aria-hidden
+        className={`size-3 shrink-0 rounded-full ${
+          selected ? "bg-current" : trust ? "bg-alarm" : "bg-secure"
+        } ${busy ? "animate-pulse" : ""}`}
+      />
+      <span>{label}</span>
     </button>
   );
 }
