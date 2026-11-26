@@ -29,7 +29,7 @@ The control bar is dimmed until hovered.
 
 ## Deploy (GitHub Pages)
 
-1. Repo → Settings → Pages → Source: **GitHub Actions**.
+1. Repo → Settings → Pages → Source: **Deploy from a branch**, branch `gh-pages` / root (set automatically on first publish).
 2. Repo → Settings → Secrets and variables → Actions → add the 7 `NEXT_PUBLIC_FIREBASE_*` secrets.
 3. Push to `main` (or run the workflow manually). The site goes live at `https://<user>.github.io/<repo>/`, stage view at `/<repo>/stage/`.
 
