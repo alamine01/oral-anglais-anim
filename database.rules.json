@@ -1,0 +1,38 @@
+{
+  "rules": {
+    "trust_pulse": {
+      ".read": true,
+      "state": {
+        ".write": true,
+        ".validate": "newData.hasChildren(['activeScenario', 'revealExplanation'])",
+        "activeScenario": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3"
+        },
+        "revealExplanation": {
+          ".validate": "newData.isBoolean()"
+        },
+        "$other": {
+          ".validate": false
+        }
+      },
+      "votes": {
+        ".write": true,
+        "$scenarioId": {
+          ".validate": "$scenarioId === '1' || $scenarioId === '2' || $scenarioId === '3'",
+          "$voterId": {
+            ".validate": "$voterId.length >= 6 && $voterId.length <= 64 && newData.hasChildren(['choice', 'timestamp'])",
+            "choice": {
+              ".validate": "newData.val() === 'trust' || newData.val() === 'verify'"
+            },
+            "timestamp": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        }
+      }
+    }
+  }
+}

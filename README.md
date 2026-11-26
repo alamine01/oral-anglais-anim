@@ -1,36 +1,38 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# The Trust Pulse
 
-## Getting Started
+Live audience voting for *"The Art of the Con: Legacy of Deception"*: the audience votes on 3 social-engineering dilemmas from their phones, and each vote reshapes a real-time Three.js cyber shield on the projector.
 
-First, run the development server:
+## Setup
 
 ```bash
+npm install
+# (fresh project: npm install firebase three @types/three qrcode @types/qrcode)
+cp .env.local.example .env.local   # fill in your Firebase web app values
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. Firebase console → create a project → **Realtime Database** (e.g. europe-west1).
+2. Project settings → add a **Web app** → copy the config into `.env.local`.
+3. Realtime Database → **Rules** → paste `database.rules.json`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Routes
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Route    | Purpose                                                        |
+|----------|----------------------------------------------------------------|
+| `/`      | Audience phone view (vote, see confirmation & explanation)     |
+| `/stage` | Projector view (3D shield, live gauge, presenter control bar)  |
 
-## Learn More
+## Stage keyboard shortcuts
 
-To learn more about Next.js, take a look at the following resources:
+`0`–`3` switch scenario · `R` toggle reveal · `Q` QR code · `Esc` close modal.
+The control bar is dimmed until hovered.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deploy (GitHub Pages)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Repo → Settings → Pages → Source: **GitHub Actions**.
+2. Repo → Settings → Secrets and variables → Actions → add the 7 `NEXT_PUBLIC_FIREBASE_*` secrets.
+3. Push to `main` (or run the workflow manually). The site goes live at `https://<user>.github.io/<repo>/`, stage view at `/<repo>/stage/`.
 
-## Deploy on Vercel
+The app is a fully static export, so it also deploys as-is to Vercel/Netlify. Open `/stage` on the presenter laptop in full screen (F11); the QR code points to the deployed origin automatically.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+> Note: `/stage` controls are not authenticated — anyone who knows the URL can change the scenario or reset the votes.
