@@ -8,6 +8,7 @@ import { db, firebaseConfigured, PATHS } from "@/lib/firebase";
 import {
   DEFAULT_STATE,
   getScenario,
+  orderedOptions,
   parseState,
   tallyVotes,
   type ActiveScenario,
@@ -23,9 +24,9 @@ const DEMO_TRUST_BIAS: Record<number, number> = { 1: 0.68, 2: 0.45, 3: 0.3 };
 const DEMO_ROOM_SIZE = 46;
 
 /** Smoothly tweens a displayed number toward its target. */
-function useAnimatedNumber(target: number, duration = 700): number {
-  const [value, setValue] = useState(target);
-  const valueRef = useRef(target);
+function useAnimatedNumber(target: number, duration = 700, initial = target): number {
+  const [value, setValue] = useState(initial);
+  const valueRef = useRef(initial);
 
   useEffect(() => {
     const from = valueRef.current;
@@ -65,10 +66,11 @@ function displayUrl(url: string) {
 
 function VulnerabilityIndex({ counts, compact }: { counts: Counts; compact: boolean }) {
   const ratio = counts.total > 0 ? counts.trust / counts.total : 0;
-  const shown = useAnimatedNumber(ratio * 100);
+  // Counts up from 0 when revealed, for a single dramatic moment.
+  const shown = useAnimatedNumber(ratio * 100, 1600, 0);
   const total = Math.round(useAnimatedNumber(counts.total, 400));
   const color = riskColor(shown / 100);
-  const trustPct = ratio * 100;
+  const trustPct = shown;
 
   return (
     <div>
@@ -94,11 +96,11 @@ function VulnerabilityIndex({ counts, compact }: { counts: Counts; compact: bool
         ) : (
           <>
             <div
-              className="h-full rounded-full bg-alarm transition-[width] duration-700 ease-out"
+              className="h-full rounded-full bg-alarm"
               style={{ width: `${trustPct}%` }}
             />
             <div
-              className="h-full flex-1 rounded-full bg-secure transition-[width] duration-700 ease-out"
+              className="h-full flex-1 rounded-full bg-secure"
               style={{ minWidth: trustPct >= 100 ? 0 : undefined }}
             />
           </>
@@ -241,6 +243,7 @@ export default function StagePage() {
   const scenario = active === 0 ? undefined : getScenario(active);
   const trustRatio = counts.total > 0 ? counts.trust / counts.total : 0;
   const live = demo || connected;
+  const animatedTotal = Math.round(useAnimatedNumber(counts.total, 400));
 
   // ---------- Presenter actions ----------
   const run = useCallback(async (action: () => Promise<void>) => {
@@ -335,7 +338,7 @@ export default function StagePage() {
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="relative min-h-0 min-w-0 flex-[0.8] lg:flex-[1.2]">
           <CyberShield3D
-            trustRatio={trustRatio}
+            trustRatio={state.revealExplanation ? trustRatio : 0}
             totalVotes={counts.total}
             className="absolute inset-0 [mask-image:radial-gradient(closest-side,black_72%,transparent)]"
           />
@@ -381,13 +384,36 @@ export default function StagePage() {
                   <p className="mt-1 text-[clamp(1rem,min(2.8vh,1.9vw),1.75rem)] leading-snug text-slate-200">{scenario.trapExplanation}</p>
                 </div>
               ) : (
-                <p className="mt-[3vh] max-w-[34ch] font-serif text-[clamp(1.15rem,min(3.7vh,2.5vw),2.4rem)] leading-[1.22] text-slate-200">
-                  {scenario.prompt}
-                </p>
+                <>
+                  <p className="mt-[3vh] max-w-[34ch] font-serif text-[clamp(1.1rem,min(3.3vh,2.2vw),2.2rem)] leading-[1.22] text-slate-200">
+                    {scenario.prompt}
+                  </p>
+                  <ol className="mt-[3vh] space-y-[1.4vh]">
+                    {orderedOptions(scenario).map((o, i) => (
+                      <li key={o.choice} className="flex items-baseline gap-[1vw] text-[clamp(0.95rem,min(2.5vh,1.6vw),1.6rem)] leading-snug">
+                        <span className="font-semibold text-slate-500">{i === 0 ? "A" : "B"}</span>
+                        <span className="text-slate-200">{o.label}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </>
               )}
 
               <div className="mt-[4.5vh]">
-                <VulnerabilityIndex counts={counts} compact={state.revealExplanation} />
+                {state.revealExplanation ? (
+                  <VulnerabilityIndex counts={counts} compact />
+                ) : (
+                  <div className="flex items-end gap-[1.5vw]">
+                    <p className="text-[clamp(2.5rem,min(10vh,6vw),7rem)] leading-[0.8] font-semibold tracking-[-0.04em] tabular-nums">
+                      {animatedTotal}
+                    </p>
+                    <p className="pb-1 text-[clamp(0.85rem,min(2.2vh,1.4vw),1.5rem)] leading-tight text-slate-400">
+                      {counts.total === 1 ? "vote" : "votes"} so far
+                      <br />
+                      Results appear after the reveal
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}

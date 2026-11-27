@@ -6,6 +6,7 @@ import { db, firebaseConfigured, PATHS } from "@/lib/firebase";
 import {
   DEFAULT_STATE,
   getScenario,
+  orderedOptions,
   parseState,
   type PulseState,
   type Vote,
@@ -119,7 +120,7 @@ export default function AudiencePage() {
   const live = demo || connected;
 
   async function vote(choice: VoteChoice) {
-    if (!voterId || !scenario || sending || choice === myVote) return;
+    if (!voterId || !scenario || sending || choice === myVote || state.revealExplanation) return;
     if (demo) {
       setDemoVote(choice);
       return;
@@ -181,28 +182,29 @@ export default function AudiencePage() {
             <p className="mt-6 font-serif text-[1.4rem] leading-[1.35] text-slate-200">{scenario.prompt}</p>
 
             <div className="mt-auto space-y-3 pt-10">
-              <Choice
-                tone="trust"
-                label={scenario.trustLabel}
-                selected={myVote === "trust"}
-                faded={myVote === "verify"}
-                busy={sending === "trust"}
-                disabled={!voterId || sending !== null}
-                onClick={() => vote("trust")}
-              />
-              <Choice
-                tone="verify"
-                label={scenario.verifyLabel}
-                selected={myVote === "verify"}
-                faded={myVote === "trust"}
-                busy={sending === "verify"}
-                disabled={!voterId || sending !== null}
-                onClick={() => vote("verify")}
-              />
+              {orderedOptions(scenario).map((o, i) => (
+                <Choice
+                  key={o.choice}
+                  letter={i === 0 ? "A" : "B"}
+                  label={o.label}
+                  selected={myVote === o.choice}
+                  faded={myVote !== null && myVote !== o.choice}
+                  busy={sending === o.choice}
+                  revealed={state.revealExplanation}
+                  isTrap={o.choice === "trust"}
+                  disabled={!voterId || sending !== null || state.revealExplanation}
+                  onClick={() => vote(o.choice)}
+                />
+              ))}
             </div>
 
             <p className={`mt-4 text-center text-[14px] ${error ? "text-alarm" : "text-slate-500"}`} aria-live="polite">
-              {error ?? (myVote ? "Vote recorded. Tap the other answer to change it." : "Your answer is anonymous.")}
+              {error ??
+                (state.revealExplanation
+                  ? "Voting is closed for this scenario."
+                  : myVote
+                    ? "Vote recorded. Tap the other answer to change it."
+                    : "Your answer is anonymous.")}
             </p>
 
             {state.revealExplanation && (
@@ -230,28 +232,37 @@ export default function AudiencePage() {
 }
 
 function Choice({
-  tone,
+  letter,
   label,
   selected,
   faded,
   busy,
+  revealed,
+  isTrap,
   disabled,
   onClick,
 }: {
-  tone: VoteChoice;
+  letter: string;
   label: string;
   selected: boolean;
   faded: boolean;
   busy: boolean;
+  revealed: boolean;
+  isTrap: boolean;
   disabled: boolean;
   onClick: () => void;
 }) {
-  const trust = tone === "trust";
-  const look = selected
-    ? trust
-      ? "border-transparent bg-alarm text-white"
-      : "border-transparent bg-secure text-[#03161c]"
-    : "border-white/12 bg-white/[0.03] text-slate-100 active:bg-white/[0.07]";
+  // Neutral while voting, so colour gives nothing away; true colours on reveal.
+  let look: string;
+  if (!revealed) {
+    look = selected
+      ? "border-transparent bg-white text-slate-950"
+      : "border-white/12 bg-white/[0.03] text-slate-100 active:bg-white/[0.07]";
+  } else if (isTrap) {
+    look = selected ? "border-transparent bg-alarm text-white" : "border-alarm/60 bg-transparent text-slate-200";
+  } else {
+    look = selected ? "border-transparent bg-secure text-[#03161c]" : "border-secure/60 bg-transparent text-slate-200";
+  }
 
   return (
     <button
@@ -259,17 +270,24 @@ function Choice({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={selected}
-      className={`flex min-h-[76px] w-full items-center gap-4 rounded-2xl border px-5 py-4 text-left text-[17px] leading-snug font-medium transition-[background-color,opacity,transform] duration-200 active:scale-[0.99] disabled:cursor-wait ${look} ${
-        faded ? "opacity-45" : ""
-      }`}
+      className={`flex min-h-[76px] w-full items-center gap-4 rounded-2xl border px-5 py-4 text-left text-[17px] leading-snug font-medium transition-[background-color,border-color,color,opacity,transform] duration-300 active:scale-[0.99] disabled:active:scale-100 ${
+        busy ? "cursor-wait" : revealed ? "cursor-default" : ""
+      } ${look} ${faded && !revealed ? "opacity-45" : ""}`}
     >
       <span
         aria-hidden
-        className={`size-3 shrink-0 rounded-full ${
-          selected ? "bg-current" : trust ? "bg-alarm" : "bg-secure"
+        className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[14px] font-semibold ${
+          selected ? "bg-black/10" : "bg-white/[0.06] text-slate-400"
         } ${busy ? "animate-pulse" : ""}`}
-      />
-      <span>{label}</span>
+      >
+        {letter}
+      </span>
+      <span className="flex-1">{label}</span>
+      {revealed && (
+        <span className={`shrink-0 text-[13px] font-semibold ${selected ? "" : isTrap ? "text-alarm" : "text-secure"}`}>
+          {isTrap ? "Trap" : "Safe"}
+        </span>
+      )}
     </button>
   );
 }
