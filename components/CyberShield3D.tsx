@@ -40,7 +40,9 @@ const smoothstep = (e0: number, e1: number, x: number) => {
  * Builds a 60-facet geodesic sphere: each of the 20 icosahedron faces is split
  * into 3 triangles around its centroid, which is projected back onto the sphere.
  */
-function buildGeodesicTriangles(radius: number): [THREE.Vector3, THREE.Vector3, THREE.Vector3][] {
+function buildGeodesicTriangles(
+  radius: number,
+): [THREE.Vector3, THREE.Vector3, THREE.Vector3][] {
   const ico = new THREE.IcosahedronGeometry(radius, 0); // non-indexed: 20 faces × 3 vertices
   const pos = ico.getAttribute("position");
   const tris: [THREE.Vector3, THREE.Vector3, THREE.Vector3][] = [];
@@ -48,14 +50,23 @@ function buildGeodesicTriangles(radius: number): [THREE.Vector3, THREE.Vector3, 
     const a = new THREE.Vector3().fromBufferAttribute(pos, f);
     const b = new THREE.Vector3().fromBufferAttribute(pos, f + 1);
     const c = new THREE.Vector3().fromBufferAttribute(pos, f + 2);
-    const m = new THREE.Vector3().add(a).add(b).add(c).divideScalar(3).setLength(radius);
+    const m = new THREE.Vector3()
+      .add(a)
+      .add(b)
+      .add(c)
+      .divideScalar(3)
+      .setLength(radius);
     tris.push([a, b, m.clone()], [b, c, m.clone()], [c, a, m.clone()]);
   }
   ico.dispose();
   return tris;
 }
 
-export default function CyberShield3D({ trustRatio, totalVotes, className }: CyberShield3DProps) {
+export default function CyberShield3D({
+  trustRatio,
+  totalVotes,
+  className,
+}: CyberShield3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const ratioRef = useRef(clamp01(trustRatio));
   const votesRef = useRef(totalVotes);
@@ -76,7 +87,11 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
     if (!container) return;
 
     // ---------- Renderer / scene / camera ----------
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: false,
+      powerPreference: "high-performance",
+    });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(BACKGROUND, 1);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -127,10 +142,15 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
       const geometry = new THREE.BufferGeometry();
       // Shrink slightly toward the centroid so seams read as glowing gaps.
       const shrink = 0.94;
-      const local = [a, b, c].map((v) => v.clone().sub(centroid).multiplyScalar(shrink));
+      const local = [a, b, c].map((v) =>
+        v.clone().sub(centroid).multiplyScalar(shrink),
+      );
       geometry.setAttribute(
         "position",
-        new THREE.Float32BufferAttribute(local.flatMap((v) => [v.x, v.y, v.z]), 3)
+        new THREE.Float32BufferAttribute(
+          local.flatMap((v) => [v.x, v.y, v.z]),
+          3,
+        ),
       );
       geometry.computeVertexNormals();
 
@@ -151,16 +171,32 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
 
       const edges = new THREE.LineSegments(
         new THREE.EdgesGeometry(geometry),
-        new THREE.LineBasicMaterial({ color: CYAN.clone(), transparent: true, opacity: 0.95 })
+        new THREE.LineBasicMaterial({
+          color: CYAN.clone(),
+          transparent: true,
+          opacity: 0.95,
+        }),
       );
       mesh.add(edges);
       spinGroup.add(mesh);
 
       const dir = centroid.clone().normalize();
-      const tiltAxis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+      const tiltAxis = new THREE.Vector3(
+        Math.random() - 0.5,
+        Math.random() - 0.5,
+        Math.random() - 0.5,
+      ).normalize();
       // Spread thresholds evenly across [0, 0.9] in random order → share of broken facets ≈ trustRatio.
       const threshold = (order[i] / triangles.length) * 0.9;
-      return { mesh, edges, dir, threshold, tiltAxis, phase: Math.random() * Math.PI * 2, breach: 0 };
+      return {
+        mesh,
+        edges,
+        dir,
+        threshold,
+        tiltAxis,
+        phase: Math.random() * Math.PI * 2,
+        breach: 0,
+      };
     });
 
     // ---------- Core ----------
@@ -201,7 +237,8 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
       bloom.resolution.set(w, h);
       camera.aspect = w / h;
       // Keep the shield fully visible on narrow containers.
-      camera.position.z = camera.aspect < 1 ? 6.2 / Math.max(camera.aspect, 0.55) : 6.2;
+      camera.position.z =
+        camera.aspect < 1 ? 6.2 / Math.max(camera.aspect, 0.55) : 6.2;
       camera.updateProjectionMatrix();
     };
     const resizeObserver = new ResizeObserver(resize);
@@ -244,8 +281,10 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
       // Rotation + mouse tilt
       spinGroup.rotation.y += dt * (0.18 + danger * 0.25);
       spinGroup.rotation.x = Math.sin(t * 0.25) * 0.12;
-      tiltGroup.rotation.y += (mouse.x * 0.45 - tiltGroup.rotation.y) * Math.min(1, dt * 3);
-      tiltGroup.rotation.x += (mouse.y * 0.3 - tiltGroup.rotation.x) * Math.min(1, dt * 3);
+      tiltGroup.rotation.y +=
+        (mouse.x * 0.45 - tiltGroup.rotation.y) * Math.min(1, dt * 3);
+      tiltGroup.rotation.x +=
+        (mouse.y * 0.3 - tiltGroup.rotation.x) * Math.min(1, dt * 3);
 
       // Facets
       for (const f of facets) {
@@ -255,8 +294,12 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
 
         const shake = b * (0.025 + danger * 0.03) * Math.sin(t * 18 + f.phase);
         const offset = b * 0.42 + shake + pulse * 0.05;
-        f.mesh.position.copy(f.dir).multiplyScalar(SHIELD_RADIUS * 0.94 + offset);
-        f.mesh.quaternion.copy(tmpQuat.setFromAxisAngle(f.tiltAxis, b * 0.35 + shake * 2));
+        f.mesh.position
+          .copy(f.dir)
+          .multiplyScalar(SHIELD_RADIUS * 0.94 + offset);
+        f.mesh.quaternion.copy(
+          tmpQuat.setFromAxisAngle(f.tiltAxis, b * 0.35 + shake * 2),
+        );
 
         tmpColor.copy(CYAN).lerp(RED, b);
         f.mesh.material.color.copy(tmpColor);
@@ -264,7 +307,8 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
         f.mesh.material.emissiveIntensity = 0.08 + b * 0.35 + pulse * 0.2;
         f.mesh.material.opacity = 0.22 + b * 0.3;
         f.edges.material.color.copy(tmpColor);
-        f.edges.material.opacity = 0.75 + 0.25 * (0.5 + 0.5 * Math.sin(t * (2 + b * 10) + f.phase));
+        f.edges.material.opacity =
+          0.75 + 0.25 * (0.5 + 0.5 * Math.sin(t * (2 + b * 10) + f.phase));
       }
 
       // Core: colour, pulse, vibration proportional to vulnerability
@@ -274,9 +318,12 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
       innerWireMaterial.color.copy(tmpColor);
       coreLight.color.copy(tmpColor);
 
-      const heartbeat = 1 + Math.sin(t * (2.2 + danger * 9)) * (0.04 + danger * 0.08);
+      const heartbeat =
+        1 + Math.sin(t * (2.2 + danger * 9)) * (0.04 + danger * 0.08);
       core.scale.setScalar(heartbeat + pulse * 0.35);
-      halo.scale.setScalar(1 + pulse * 0.6 + danger * 0.25 + Math.sin(t * 3) * 0.03);
+      halo.scale.setScalar(
+        1 + pulse * 0.6 + danger * 0.25 + Math.sin(t * 3) * 0.03,
+      );
       haloMaterial.opacity = 0.06 + danger * 0.1 + pulse * 0.15;
       innerWire.rotation.y -= dt * (0.4 + danger * 2);
       innerWire.rotation.z += dt * 0.2;
@@ -285,7 +332,7 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
       coreGroup.position.set(
         (Math.random() - 0.5) * jitter,
         (Math.random() - 0.5) * jitter,
-        (Math.random() - 0.5) * jitter
+        (Math.random() - 0.5) * jitter,
       );
       coreLight.intensity = 2.5 + danger * 4 + pulse * 5;
       bloom.strength = 0.55 + danger * 0.35 + pulse * 0.3;
@@ -318,9 +365,17 @@ export default function CyberShield3D({ trustRatio, totalVotes, className }: Cyb
       composer.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
-      if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
+      if (renderer.domElement.parentNode === container)
+        container.removeChild(renderer.domElement);
     };
   }, []);
 
-  return <div ref={containerRef} className={className ?? "h-full w-full"} aria-label="3D cyber shield" role="img" />;
+  return (
+    <div
+      ref={containerRef}
+      className={className ?? "h-full w-full"}
+      aria-label="3D cyber shield"
+      role="img"
+    />
+  );
 }

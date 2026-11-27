@@ -1,30 +1,53 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { onValue, ref, remove, set, update } from "firebase/database";
 import QRCode from "qrcode";
 import CyberShield3D from "@/components/CyberShield3D";
 import { db, firebaseConfigured, PATHS } from "@/lib/firebase";
 import {
+  addVote,
   DEFAULT_STATE,
+  emptyTally,
   getScenario,
-  orderedOptions,
+  optionLetter,
   parseState,
+  SCENARIO_COUNT,
+  SCENARIOS,
   tallyVotes,
   type ActiveScenario,
+  type OptionId,
   type PulseState,
+  type Tally,
 } from "@/lib/scenarios";
 
 const noopSubscribe = () => () => {};
-const EMPTY_COUNTS = { trust: 0, verify: 0, total: 0 };
-type Counts = typeof EMPTY_COUNTS;
+const EMPTY_COUNTS = emptyTally();
+type Counts = Tally;
 
-/** Share of naive "trust" votes simulated per scenario in demo mode. */
-const DEMO_TRUST_BIAS: Record<number, number> = { 1: 0.68, 2: 0.45, 3: 0.3 };
+/** Share of votes on the safe answer, simulated per scenario in demo mode. */
+const DEMO_SAFE_SHARE: Record<number, number> = {
+  1: 0.3,
+  2: 0.5,
+  3: 0.6,
+  4: 0.4,
+  5: 0.55,
+  6: 0.25,
+};
 const DEMO_ROOM_SIZE = 46;
 
 /** Smoothly tweens a displayed number toward its target. */
-function useAnimatedNumber(target: number, duration = 700, initial = target): number {
+function useAnimatedNumber(
+  target: number,
+  duration = 700,
+  initial = target,
+): number {
   const [value, setValue] = useState(initial);
   const valueRef = useRef(initial);
 
@@ -64,8 +87,14 @@ function displayUrl(url: string) {
   return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
 }
 
-function VulnerabilityIndex({ counts, compact }: { counts: Counts; compact: boolean }) {
-  const ratio = counts.total > 0 ? counts.trust / counts.total : 0;
+function VulnerabilityIndex({
+  counts,
+  compact,
+}: {
+  counts: Counts;
+  compact: boolean;
+}) {
+  const ratio = counts.total > 0 ? counts.compromised / counts.total : 0;
   // Counts up from 0 when revealed, for a single dramatic moment.
   const shown = useAnimatedNumber(ratio * 100, 1600, 0);
   const total = Math.round(useAnimatedNumber(counts.total, 400));
@@ -77,7 +106,9 @@ function VulnerabilityIndex({ counts, compact }: { counts: Counts; compact: bool
       <div className="flex items-end justify-between gap-6">
         <p
           className={`leading-[0.8] font-semibold tracking-[-0.04em] tabular-nums transition-[font-size] duration-500 ${
-            compact ? "text-[clamp(2.5rem,min(8vh,5vw),6rem)]" : "text-[clamp(3rem,min(13vh,8vw),10rem)]"
+            compact
+              ? "text-[clamp(2.5rem,min(8vh,5vw),6rem)]"
+              : "text-[clamp(3rem,min(13vh,8vw),10rem)]"
           }`}
           style={{ color }}
         >
@@ -90,7 +121,10 @@ function VulnerabilityIndex({ counts, compact }: { counts: Counts; compact: bool
         </p>
       </div>
 
-      <div className="mt-[3vh] flex h-[clamp(0.4rem,1.1vh,0.75rem)] gap-1 overflow-hidden rounded-full" aria-hidden>
+      <div
+        className="mt-[3vh] flex h-[clamp(0.4rem,1.1vh,0.75rem)] gap-1 overflow-hidden rounded-full"
+        aria-hidden
+      >
         {counts.total === 0 ? (
           <div className="h-full w-full rounded-full bg-white/10" />
         ) : (
@@ -109,10 +143,16 @@ function VulnerabilityIndex({ counts, compact }: { counts: Counts; compact: bool
 
       <div className="mt-[1.5vh] flex justify-between gap-4 text-[clamp(0.85rem,min(2.2vh,1.4vw),1.5rem)]">
         <span className="text-slate-300">
-          <span className="font-semibold text-alarm tabular-nums">{counts.trust}</span> Trust / Compromised
+          <span className="font-semibold text-alarm tabular-nums">
+            {counts.compromised}
+          </span>{" "}
+          Trust / Compromised
         </span>
         <span className="text-slate-300">
-          Verified / Secure <span className="font-semibold text-secure tabular-nums">{counts.verify}</span>
+          Verified / Secure{" "}
+          <span className="font-semibold text-secure tabular-nums">
+            {counts.secure}
+          </span>
         </span>
       </div>
       <p className="mt-[0.8vh] text-[clamp(0.8rem,min(1.7vh,1.1vw),1.125rem)] text-slate-500 tabular-nums">
@@ -122,7 +162,15 @@ function VulnerabilityIndex({ counts, compact }: { counts: Counts; compact: bool
   );
 }
 
-function QrModal({ url, qr, onClose }: { url: string; qr: string | null; onClose: () => void }) {
+function QrModal({
+  url,
+  qr,
+  onClose,
+}: {
+  url: string;
+  qr: string | null;
+  onClose: () => void;
+}) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-night/85 backdrop-blur-md"
@@ -138,7 +186,11 @@ function QrModal({ url, qr, onClose }: { url: string; qr: string | null; onClose
         <p className="text-4xl font-semibold tracking-tight">Scan to vote</p>
         {qr ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={qr} alt={`QR code for ${url}`} className="my-8 size-[min(58vh,30rem)] [image-rendering:pixelated]" />
+          <img
+            src={qr}
+            alt={`QR code for ${url}`}
+            className="my-8 size-[min(58vh,30rem)] [image-rendering:pixelated]"
+          />
         ) : (
           <div className="my-8 size-[min(58vh,30rem)] rounded-xl bg-slate-100" />
         )}
@@ -160,12 +212,15 @@ export default function StagePage() {
   const demo = useSyncExternalStore(
     noopSubscribe,
     () => new URLSearchParams(window.location.search).has("demo"),
-    () => false
+    () => false,
   );
   const [liveState, setLiveState] = useState<PulseState>(DEFAULT_STATE);
   const [demoState, setDemoState] = useState<PulseState>(DEFAULT_STATE);
   const [demoVotes, setDemoVotes] = useState<Record<number, Counts>>({});
-  const [votesSnap, setVotesSnap] = useState<{ scenario: number; counts: Counts }>({
+  const [votesSnap, setVotesSnap] = useState<{
+    scenario: number;
+    counts: Counts;
+  }>({
     scenario: 0,
     counts: EMPTY_COUNTS,
   });
@@ -181,13 +236,19 @@ export default function StagePage() {
   // Audience URL = site origin + base path (e.g. https://user.github.io/repo/)
   const origin = useSyncExternalStore(
     noopSubscribe,
-    () => `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/`,
-    () => ""
+    () =>
+      `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/`,
+    () => "",
   );
 
   useEffect(() => {
     if (!origin) return;
-    QRCode.toDataURL(origin, { width: 720, margin: 1, errorCorrectionLevel: "M", color: { dark: "#050811", light: "#ffffff" } })
+    QRCode.toDataURL(origin, {
+      width: 720,
+      margin: 1,
+      errorCorrectionLevel: "M",
+      color: { dark: "#050811", light: "#ffffff" },
+    })
       .then(setQr)
       .catch(() => setQr(null));
   }, [origin]);
@@ -195,8 +256,12 @@ export default function StagePage() {
   // Live session state + connection
   useEffect(() => {
     if (demo) return;
-    const unsubState = onValue(ref(db, PATHS.state), (snap) => setLiveState(parseState(snap.val())));
-    const unsubConn = onValue(ref(db, ".info/connected"), (snap) => setConnected(snap.val() === true));
+    const unsubState = onValue(ref(db, PATHS.state), (snap) =>
+      setLiveState(parseState(snap.val())),
+    );
+    const unsubConn = onValue(ref(db, ".info/connected"), (snap) =>
+      setConnected(snap.val() === true),
+    );
     return () => {
       unsubState();
       unsubConn();
@@ -208,7 +273,10 @@ export default function StagePage() {
   useEffect(() => {
     if (demo || active === 0) return;
     const unsub = onValue(ref(db, PATHS.scenarioVotes(active)), (snap) =>
-      setVotesSnap({ scenario: active, counts: tallyVotes(snap.val()) })
+      setVotesSnap({
+        scenario: active,
+        counts: tallyVotes(snap.val(), getScenario(active)),
+      }),
     );
     return () => unsub();
   }, [active, demo]);
@@ -225,8 +293,15 @@ export default function StagePage() {
           done = true;
           return prev;
         }
-        const trust = Math.random() < DEMO_TRUST_BIAS[active] ? 1 : 0;
-        return { ...prev, [active]: { trust: c.trust + trust, verify: c.verify + 1 - trust, total: c.total + 1 } };
+        const sc = getScenario(active);
+        if (!sc) return prev;
+        const safeId = sc.options.find((o) => o.safe)!.id;
+        const traps = sc.options.filter((o) => !o.safe).map((o) => o.id);
+        const choice: OptionId =
+          Math.random() < (DEMO_SAFE_SHARE[active] ?? 0.4)
+            ? safeId
+            : traps[Math.floor(Math.random() * traps.length)];
+        return { ...prev, [active]: addVote(c, choice, sc) };
       });
       if (!done) timer = setTimeout(tick, 120 + Math.random() * 650);
     };
@@ -241,7 +316,7 @@ export default function StagePage() {
       : EMPTY_COUNTS;
 
   const scenario = active === 0 ? undefined : getScenario(active);
-  const trustRatio = counts.total > 0 ? counts.trust / counts.total : 0;
+  const trustRatio = counts.total > 0 ? counts.compromised / counts.total : 0;
   const live = demo || connected;
   const animatedTotal = Math.round(useAnimatedNumber(counts.total, 400));
 
@@ -252,7 +327,9 @@ export default function StagePage() {
     try {
       await action();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Couldn't save to Firebase");
+      setActionError(
+        e instanceof Error ? e.message : "Couldn't save to Firebase",
+      );
     } finally {
       setBusy(false);
     }
@@ -262,16 +339,28 @@ export default function StagePage() {
     (id: ActiveScenario) =>
       demo
         ? setDemoState({ activeScenario: id, revealExplanation: false })
-        : run(() => update(ref(db, PATHS.state), { activeScenario: id, revealExplanation: false })),
-    [run, demo]
+        : run(() =>
+            update(ref(db, PATHS.state), {
+              activeScenario: id,
+              revealExplanation: false,
+            }),
+          ),
+    [run, demo],
   );
 
   const toggleReveal = useCallback(
     () =>
       demo
-        ? setDemoState((s) => ({ ...s, revealExplanation: !s.revealExplanation }))
-        : run(() => update(ref(db, PATHS.state), { revealExplanation: !state.revealExplanation })),
-    [run, demo, state.revealExplanation]
+        ? setDemoState((s) => ({
+            ...s,
+            revealExplanation: !s.revealExplanation,
+          }))
+        : run(() =>
+            update(ref(db, PATHS.state), {
+              revealExplanation: !state.revealExplanation,
+            }),
+          ),
+    [run, demo, state.revealExplanation],
   );
 
   const resetAll = useCallback(() => {
@@ -298,7 +387,8 @@ export default function StagePage() {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "Escape") setShowQr(false);
-      else if (["0", "1", "2", "3"].includes(e.key)) goTo(Number(e.key) as ActiveScenario);
+      else if (/^[0-9]$/.test(e.key) && Number(e.key) <= SCENARIO_COUNT)
+        goTo(Number(e.key));
       else if (e.key === "r" || e.key === "R") toggleReveal();
       else if (e.key === "q" || e.key === "Q") setShowQr((v) => !v);
     };
@@ -306,14 +396,17 @@ export default function StagePage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [goTo, toggleReveal]);
 
-  const navButtons: { id: ActiveScenario; label: string }[] = [
-    { id: 0, label: "Attente (0)" },
-    { id: 1, label: "Scénario 1" },
-    { id: 2, label: "Scénario 2" },
-    { id: 3, label: "Scénario 3" },
+  const navButtons: { id: ActiveScenario; label: string; title: string }[] = [
+    { id: 0, label: "Attente", title: "Écran d'attente (touche 0)" },
+    ...SCENARIOS.map((sc) => ({
+      id: sc.id,
+      label: String(sc.id),
+      title: `${sc.title.split(" — ")[1] ?? sc.title} (touche ${sc.id})`,
+    })),
   ];
 
-  const ctrl = "rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors disabled:opacity-40 xl:px-4 xl:py-2 xl:text-sm";
+  const ctrl =
+    "rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors disabled:opacity-40 xl:px-4 xl:py-2 xl:text-sm";
   const ctrlIdle = "text-slate-300 hover:bg-white/10 hover:text-white";
   const ctrlOn = "bg-white text-night";
 
@@ -322,15 +415,20 @@ export default function StagePage() {
       {(demo || !firebaseConfigured) && (
         <p className="border-b border-white/10 py-2 text-center text-sm text-slate-400">
           {demo
-            ? "Mode démo : les votes sont simulés. Touches 1 à 3 pour les scénarios, R pour révéler l'analyse."
+            ? "Mode démo : les votes sont simulés. Touches 1 à 6 pour les scénarios, R pour révéler l'analyse."
             : "Firebase n'est pas configuré : l'interface s'affiche mais les votes sont désactivés."}
         </p>
       )}
 
       <header className="flex items-center justify-between px-[4vw] pt-[3vh]">
-        <p className="text-[clamp(1rem,min(2.4vh,1.6vw),1.5rem)] font-semibold tracking-tight">The Trust Pulse</p>
+        <p className="text-[clamp(1rem,min(2.4vh,1.6vw),1.5rem)] font-semibold tracking-tight">
+          The Trust Pulse
+        </p>
         <p className="flex items-center gap-2 text-[clamp(0.85rem,min(1.8vh,1.2vw),1.125rem)] text-slate-400">
-          <span className={`size-2.5 rounded-full ${live ? "bg-secure" : "bg-alarm"}`} aria-hidden />
+          <span
+            className={`size-2.5 rounded-full ${live ? "bg-secure" : "bg-alarm"}`}
+            aria-hidden
+          />
           {demo ? "Demo" : live ? "Live" : "Offline"}
         </p>
       </header>
@@ -352,7 +450,9 @@ export default function StagePage() {
                 <br />
                 of the Con
               </h1>
-              <p className="mt-[2vh] text-[clamp(1rem,min(3vh,2vw),1.875rem)] text-slate-400">Legacy of Deception</p>
+              <p className="mt-[2vh] text-[clamp(1rem,min(3vh,2vw),1.875rem)] text-slate-400">
+                Legacy of Deception
+              </p>
 
               <div className="mt-[5vh] flex items-center gap-[2vw]">
                 {qr && (
@@ -364,34 +464,53 @@ export default function StagePage() {
                   />
                 )}
                 <div>
-                  <p className="text-[clamp(0.9rem,min(2.3vh,1.5vw),1.5rem)] text-slate-400">Scan to vote, or open</p>
-                  <p className="mt-1 text-[clamp(1rem,min(3vh,1.9vw),2rem)] font-semibold tracking-tight [overflow-wrap:anywhere]">{displayUrl(origin)}</p>
+                  <p className="text-[clamp(0.9rem,min(2.3vh,1.5vw),1.5rem)] text-slate-400">
+                    Scan to vote, or open
+                  </p>
+                  <p className="mt-1 text-[clamp(1rem,min(3vh,1.9vw),2rem)] font-semibold tracking-tight [overflow-wrap:anywhere]">
+                    {displayUrl(origin)}
+                  </p>
                 </div>
               </div>
             </div>
           ) : (
             <div key={scenario.id} className="animate-enter flex flex-col">
-              <p className="text-[clamp(0.9rem,min(2.3vh,1.5vw),1.5rem)] text-slate-400">Scenario {scenario.id} of 3</p>
+              <p className="text-[clamp(0.9rem,min(2.3vh,1.5vw),1.5rem)] text-slate-400">
+                Scenario {scenario.id} of {SCENARIO_COUNT}
+              </p>
               <h1 className="mt-1 text-[clamp(1.4rem,min(4.6vh,3vw),3rem)] leading-tight font-semibold tracking-tight">
                 {scenario.title.split(" — ")[1] ?? scenario.title}
               </h1>
 
               {state.revealExplanation ? (
                 <div className="animate-enter mt-[3vh] border-l-2 border-alarm pl-[1.5vw]">
-                  <p className="text-[clamp(0.9rem,min(2.3vh,1.5vw),1.5rem)] text-slate-400">The lever</p>
-                  <p className="mt-1 text-[clamp(1.1rem,min(3.3vh,2.2vw),2.1rem)] leading-tight font-semibold">{scenario.lever}</p>
-                  <p className="mt-[2vh] text-[clamp(0.9rem,min(2.3vh,1.5vw),1.5rem)] text-slate-400">The flaw it exploits</p>
-                  <p className="mt-1 text-[clamp(1rem,min(2.8vh,1.9vw),1.75rem)] leading-snug text-slate-200">{scenario.trapExplanation}</p>
+                  <p className="text-[clamp(0.9rem,min(2.3vh,1.5vw),1.5rem)] text-slate-400">
+                    The lever
+                  </p>
+                  <p className="mt-1 text-[clamp(1.1rem,min(3.3vh,2.2vw),2.1rem)] leading-tight font-semibold">
+                    {scenario.lever}
+                  </p>
+                  <p className="mt-[2vh] text-[clamp(0.9rem,min(2.3vh,1.5vw),1.5rem)] text-slate-400">
+                    The flaw it exploits
+                  </p>
+                  <p className="mt-1 text-[clamp(1rem,min(2.8vh,1.9vw),1.75rem)] leading-snug text-slate-200">
+                    {scenario.trapExplanation}
+                  </p>
                 </div>
               ) : (
                 <>
-                  <p className="mt-[3vh] max-w-[34ch] font-serif text-[clamp(1.1rem,min(3.3vh,2.2vw),2.2rem)] leading-[1.22] text-slate-200">
+                  <p className="mt-[2.5vh] max-w-[46ch] font-serif text-[clamp(1.05rem,min(3vh,2vw),2rem)] leading-[1.22] text-slate-200">
                     {scenario.prompt}
                   </p>
-                  <ol className="mt-[3vh] space-y-[1.4vh]">
-                    {orderedOptions(scenario).map((o, i) => (
-                      <li key={o.choice} className="flex items-baseline gap-[1vw] text-[clamp(0.95rem,min(2.5vh,1.6vw),1.6rem)] leading-snug">
-                        <span className="font-semibold text-slate-500">{i === 0 ? "A" : "B"}</span>
+                  <ol className="mt-[2.5vh] space-y-[1.1vh]">
+                    {scenario.options.map((o) => (
+                      <li
+                        key={o.id}
+                        className="flex items-baseline gap-[1vw] text-[clamp(0.9rem,min(2.3vh,1.5vw),1.45rem)] leading-snug"
+                      >
+                        <span className="w-[1.2em] shrink-0 font-semibold text-slate-500">
+                          {optionLetter(o.id)}
+                        </span>
                         <span className="text-slate-200">{o.label}</span>
                       </li>
                     ))}
@@ -423,21 +542,32 @@ export default function StagePage() {
       {/* Presenter controls: faint until hovered or focused */}
       <footer className="flex justify-center px-4 pt-[1vh] pb-[2vh]">
         <div className="flex flex-wrap items-center justify-center gap-1 rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-1.5 opacity-30 backdrop-blur transition-opacity duration-300 focus-within:opacity-100 hover:opacity-100">
-          <button type="button" onClick={() => setShowQr(true)} className={`${ctrl} ${ctrlIdle}`}>
+          <button
+            type="button"
+            onClick={() => setShowQr(true)}
+            className={`${ctrl} ${ctrlIdle}`}
+          >
             QR Code Salle
           </button>
           <span className="mx-1 h-5 w-px bg-white/10" aria-hidden />
           {navButtons.map((b) => (
-            <button
-              key={b.id}
-              type="button"
-              disabled={busy}
-              onClick={() => goTo(b.id)}
-              aria-pressed={active === b.id}
-              className={`${ctrl} ${active === b.id ? ctrlOn : ctrlIdle}`}
-            >
-              {b.label}
-            </button>
+            <span key={b.id} className="contents">
+              {b.id === 1 && (
+                <span className="pr-1 pl-2 text-[13px] text-slate-500 xl:text-sm">
+                  Scénario
+                </span>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => goTo(b.id)}
+                title={b.title}
+                aria-pressed={active === b.id}
+                className={`${ctrl} ${active === b.id ? ctrlOn : ctrlIdle}`}
+              >
+                {b.label}
+              </button>
+            </span>
           ))}
           <span className="mx-1 h-5 w-px bg-white/10" aria-hidden />
           <button
@@ -447,7 +577,9 @@ export default function StagePage() {
             aria-pressed={state.revealExplanation}
             className={`${ctrl} ${state.revealExplanation ? ctrlOn : ctrlIdle}`}
           >
-            {state.revealExplanation ? "Masquer l'analyse" : "Révéler l'analyse"}
+            {state.revealExplanation
+              ? "Masquer l'analyse"
+              : "Révéler l'analyse"}
           </button>
           <button
             type="button"
@@ -457,11 +589,15 @@ export default function StagePage() {
           >
             {confirmReset ? "Confirmer le reset" : "Reset Votes"}
           </button>
-          {actionError && <span className="px-3 text-sm text-alarm">{actionError}</span>}
+          {actionError && (
+            <span className="px-3 text-sm text-alarm">{actionError}</span>
+          )}
         </div>
       </footer>
 
-      {showQr && <QrModal url={origin} qr={qr} onClose={() => setShowQr(false)} />}
+      {showQr && (
+        <QrModal url={origin} qr={qr} onClose={() => setShowQr(false)} />
+      )}
     </main>
   );
 }

@@ -16,14 +16,17 @@ export const firebaseConfigured = Boolean(firebaseConfig.databaseURL);
 
 if (!firebaseConfigured) {
   console.warn(
-    "[Trust Pulse] NEXT_PUBLIC_FIREBASE_DATABASE_URL is missing — the UI renders but votes are disabled. Copy .env.local.example to .env.local and fill in your Firebase project values."
+    "[Trust Pulse] NEXT_PUBLIC_FIREBASE_DATABASE_URL is missing — the UI renders but votes are disabled. Copy .env.local.example to .env.local and fill in your Firebase project values.",
   );
   // Placeholder so the SDK initialises; it simply never connects.
-  firebaseConfig.databaseURL = "https://trust-pulse-unconfigured-default-rtdb.firebaseio.com";
+  firebaseConfig.databaseURL =
+    "https://trust-pulse-unconfigured-default-rtdb.firebaseio.com";
 }
 
 // Reuse the existing app during hot reload / multiple imports.
-const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+const app: FirebaseApp = getApps().length
+  ? getApp()
+  : initializeApp(firebaseConfig);
 
 export const db: Database = getDatabase(app);
 
@@ -32,5 +35,6 @@ export const PATHS = {
   state: "trust_pulse/state",
   votes: "trust_pulse/votes",
   scenarioVotes: (scenarioId: number) => `trust_pulse/votes/${scenarioId}`,
-  voterVote: (scenarioId: number, voterId: string) => `trust_pulse/votes/${scenarioId}/${voterId}`,
+  voterVote: (scenarioId: number, voterId: string) =>
+    `trust_pulse/votes/${scenarioId}/${voterId}`,
 } as const;

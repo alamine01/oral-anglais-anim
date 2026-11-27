@@ -1,6 +1,6 @@
 # The Trust Pulse
 
-Live audience voting for *"The Art of the Con: Legacy of Deception"*: the audience votes on 3 social-engineering dilemmas from their phones, and each vote reshapes a real-time Three.js cyber shield on the projector.
+Live audience voting for *"The Art of the Con: Legacy of Deception"*: the audience votes on 6 social-engineering dilemmas (4 answers each, one safe) from their phones, and each vote reshapes a real-time Three.js cyber shield on the projector.
 
 ## Setup
 
@@ -24,7 +24,7 @@ npm run dev
 
 ## Stage keyboard shortcuts
 
-`0`–`3` switch scenario · `R` toggle reveal · `Q` QR code · `Esc` close modal.
+`0`–`6` switch scenario · `R` toggle reveal · `Q` QR code · `Esc` close modal.
 The control bar is dimmed until hovered.
 
 ## Deploy (GitHub Pages)

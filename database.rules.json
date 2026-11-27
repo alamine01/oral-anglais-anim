@@ -6,7 +6,7 @@
         ".write": true,
         ".validate": "newData.hasChildren(['activeScenario', 'revealExplanation'])",
         "activeScenario": {
-          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3"
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6"
         },
         "revealExplanation": {
           ".validate": "newData.isBoolean()"
@@ -18,11 +18,11 @@
       "votes": {
         ".write": true,
         "$scenarioId": {
-          ".validate": "$scenarioId === '1' || $scenarioId === '2' || $scenarioId === '3'",
+          ".validate": "$scenarioId.matches(/^[1-6]$/)",
           "$voterId": {
             ".validate": "$voterId.length >= 6 && $voterId.length <= 64 && newData.hasChildren(['choice', 'timestamp'])",
             "choice": {
-              ".validate": "newData.val() === 'trust' || newData.val() === 'verify'"
+              ".validate": "newData.isString() && newData.val().matches(/^[abcd]$/)"
             },
             "timestamp": {
               ".validate": "newData.isNumber()"

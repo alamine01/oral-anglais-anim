@@ -5,7 +5,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "The Trust Pulse — The Art of the Con",
-  description: "Live audience voting on social-engineering dilemmas, driving a real-time 3D cyber shield.",
+  description:
+    "Live audience voting on social-engineering dilemmas, driving a real-time 3D cyber shield.",
 };
 
 export const viewport: Viewport = {
@@ -15,7 +16,9 @@ export const viewport: Viewport = {
   themeColor: "#020617",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col font-sans">{children}</body>
